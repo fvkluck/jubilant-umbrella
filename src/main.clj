@@ -84,21 +84,6 @@
   (let [routes (-> self :routes route-target)]
     (apply min-key :distance routes)))
 
-; example messages, not yet how they're currently implemented
-{:message-type :update-route
- :header {:addressee :y
-          :source :x
-          :path (list)}
- :body {:target :u
-        :path (list :y :z)
-        :distance 10}}
-
-{:message-type :request-route
- :header {:source :x
-          :addressee :y
-          :path (list)}
- :body {:target :u}}
-
 (defn update-route [self source route-target {:keys [path distance] :as _route}]
   (update-in self [:routes route-target]
              (fnil conj [])
@@ -127,10 +112,10 @@
                                                   :distance 13}]}
   )
 
-(declare send-message)
+(declare handle-message)
 (defn notify-neighbours! [self route-target]
   (doseq [n (-> self :requests route-target)]
-    (send-message :update-route n (:id self) route-target (shortest-route self route-target))))
+    (handle-message :update-route n (:id self) route-target (shortest-route self route-target))))
 
 (defn handle-update-route [self source route-target {:keys [_path _distance] :as route}]
   (let [new-node (-> self
@@ -144,17 +129,32 @@
   (agent-errors (:u network))
 
   (send (:u network) assoc :requests {:v [:w]})
-  (send-message :update-route :u :x :v {:path (list)
+  (handle-message :update-route :u :x :v {:path (list)
                                         :distance 4})
   )
 
 (def network (build-network graph))
 
-(defmulti send-message (fn [msg-id & _] msg-id))
+(defmulti handle-message (fn [msg-id & _] msg-id))
 
-(defmethod send-message :update-route [_ receiver & args]
+(defmethod handle-message :update-route [_ receiver & args]
   (apply (partial send (receiver network) handle-update-route) args))
 
 
-#_(defmethod send-message :notify-neighbours [_ receiver & args]
+#_(defmethod handle-message :notify-neighbours [_ receiver & args]
     (apply (partial send (receiver network) notify-neighbours!) args))
+
+; example messages, not yet how they're currently implemented
+{:message-type :update-route
+ :header {:addressee :y
+          :source :x
+          :path (list)}
+ :body {:target :u
+        :path (list :y :z)
+        :distance 10}}
+
+{:message-type :request-route
+ :header {:source :x
+          :addressee :y
+          :path (list)}
+ :body {:target :u}}
