@@ -145,16 +145,16 @@
     (apply (partial send (receiver network) notify-neighbours!) args))
 
 ; example messages, not yet how they're currently implemented
-{:message-type :update-route
- :header {:addressee :y
+{:header {:addressee :y
           :source :x
           :path (list)}
- :body {:target :u
+ :body {:message-type :update-route
+        :target :u
         :path (list :y :z)
         :distance 10}}
 
-{:message-type :request-route
- :header {:source :x
+{:header {:source :x
           :addressee :y
           :path (list)}
- :body {:target :u}}
+ :body {:message-type :update-route
+        :target :u}}
