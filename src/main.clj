@@ -63,6 +63,36 @@
   (neighbours {:nodes #{} :links #{}} :u) := {}
   (neighbours graph :nan) := {})
 
+(defn add-node [network graph node-id]
+  (let [nbs-in-network (->> (neighbours graph node-id)
+                            (filter (fn [[k _v]] (k network)))
+                            (into {}))]
+    (-> network
+        (assoc node-id (make-node {:id node-id
+                                   :neighbours nbs-in-network})))))
+
+(rcf/tests
+  (defn- network-state
+    "Helper function to get current state of nodes in network"
+    [network]
+    (->> (seq network)
+         (map (fn [[k v]] [k @v]))
+         (into {})))
+
+  (network-state (add-node {} graph :x)) := {:x {:id :x
+                                                 :neighbours {}}}
+  (network-state (-> {}
+                     (add-node graph :x)
+                     (add-node graph :u))) := {:x {:id :x
+                                                   :neighbours {:u 9}
+                                                   :routes {:u {:path '()
+                                                                :distance 9}}}
+                                               :u {:id :u
+                                                   :neighbours {:x 9}
+                                                   :routes {:x {:path '()
+                                                                :distance 9}}}}
+  )
+
 (defn build-network [{:keys [nodes _links] :as graph}]
   (into {} (for [node nodes]
     [node (make-node {:id node
