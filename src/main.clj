@@ -1,5 +1,6 @@
-(ns networksim.main
-  (:require [hyperfiddle.rcf :as rcf]))
+(ns main
+  (:require [hyperfiddle.rcf :as rcf]
+            [clojure.core.async :refer [go <! >!  <!! chan >!! close!] :as async]))
 
 (comment
   (hyperfiddle.rcf/enable!))
@@ -62,6 +63,73 @@
   (neighbours graph :z) := {:w 3  :y 6}
   (neighbours {:nodes #{} :links #{}} :u) := {}
   (neighbours graph :nan) := {})
+
+(defn worker [{:keys [in out distance] :as conn}]
+  (atom {:id :x
+         :neighbours {:u {:in in
+                          :out out
+                          :distance 9}}})  ; TODO
+  )
+
+(defn make-connection [d]
+  {:in (chan)
+   :out (chan)
+   :distance d})
+
+(defn reverse-connection [{:keys [in out] :as conn}]
+  (-> conn
+      (assoc :in out)
+      (assoc :out in)))
+
+(defn add-connection [w conn-id conn]
+  (update w :neighbours assoc conn-id conn))
+
+(defn connect-workers [w1 w2 d]
+  (let [conn (make-connection d)]
+    (swap! w1 add-connection (:id @w2) conn)
+    (swap! w2 add-connection (:id @w1) (reverse-connection conn))))
+
+(rcf/tests
+  (def wx (atom {:id :x}))
+  (def wy (atom {:id :y}))
+  (connect-workers wx wy 3)
+  @wx := 3
+  @wy := 3)
+
+(defmulti handle-message (fn [w msg] (:id msg)))
+
+(defmethod handle-message :greet
+  [w msg]
+  (println "Greeting"))
+
+(defmethod handle-message nil
+  [w msg]
+  (println (:id @w) msg))
+
+(defn message-handler [w]
+  (fn [msg] (handle-message w msg)))
+
+(defn listen-neighbour [worker nb-id]
+  (go
+    (while true
+      (let [in-chan (-> @worker :neighbours nb-id :in)
+            msg (<! in-chan)]
+        (if (= msg :disconnect)
+          (do
+            (println "Closing")
+            (close! in-chan)
+            (swap! worker update :neighbours dissoc nb-id))
+          (handle-message worker msg))))))
+
+(let [in (chan)
+      out (chan)
+      w (worker in out)]
+  (listen-neighbour w :u)
+  (>!! in "Hello")
+  (>!! in {:id :greet})
+  (>!! in :disconnect)
+  (<!! (async/timeout 100))
+  @w)
 
 (defn build-network [{:keys [nodes _links] :as graph}]
   (into {} (for [node nodes]
