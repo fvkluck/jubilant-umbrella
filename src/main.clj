@@ -2,7 +2,7 @@
   (:require [hyperfiddle.rcf :as rcf]))
 
 (comment
-  (hyperfiddle.rcf/enable!))
+  (rcf/enable!))
 
 (defonce logs (atom []))
 
@@ -18,18 +18,18 @@
 (defn clear-log []
   (reset! logs []))
 
-(def graph
-  {:nodes #{:u :v :w :x :y :z}
-   :links {#{:u :v} 4
-           #{:u :w} 7
-           #{:u :x} 9
-           #{:v :x} 4
-           #{:v :w} 3
-           #{:w :x} 2
-           #{:w :y} 8
-           #{:x :y} 4
-           #{:w :z} 3
-           #{:y :z} 6}})
+(rcf/tests (def graph
+             {:nodes #{:u :v :w :x :y :z}
+              :links {#{:u :v} 4
+                      #{:u :w} 7
+                      #{:u :x} 9
+                      #{:v :x} 4
+                      #{:v :w} 3
+                      #{:w :x} 2
+                      #{:w :y} 8
+                      #{:x :y} 4
+                      #{:w :z} 3
+                      #{:y :z} 6}}))
 
 (defn watch-agent [n]
   (let [watch-fn (fn [k _reference _old new-state]
@@ -48,7 +48,7 @@
                           first)]
         [neighbour d]))))
 
-(hyperfiddle.rcf/tests
+(rcf/tests
   (distance [#{:u :v} 4] :u) := [:v 4]
   (distance [#{:u :v} 4] :y) := nil)
 
@@ -57,7 +57,7 @@
        (map #(distance % node))
        (into (hash-map))))
 
-(hyperfiddle.rcf/tests
+(rcf/tests
   (neighbours graph :u) := {:v 4 :x 9 :w 7}
   (neighbours graph :z) := {:w 3  :y 6}
   (neighbours {:nodes #{} :links #{}} :u) := {}
@@ -68,6 +68,8 @@
     [node (make-node {:id node
                       :neighbours (neighbours graph node)
                       :routes {}})])))
+
+(rcf/tests (def network (build-network graph)))
 
 
 ; example node
@@ -90,7 +92,7 @@
              {:path (conj path source)
               :distance (+ distance (-> self :neighbours source))}))  ; sender knows the distance, not receiver
 
-(hyperfiddle.rcf/tests
+(rcf/tests
   (:routes (update-route {:id :u
                           :neighbours {:v 4 :x 9 :w 7}
                           :routes {:v [{:path (list)
@@ -132,8 +134,6 @@
   (handle-message :update-route :u :x :v {:path (list)
                                         :distance 4})
   )
-
-(def network (build-network graph))
 
 (defmulti handle-message (fn [msg-id & _] msg-id))
 
