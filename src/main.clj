@@ -68,7 +68,7 @@
   (atom {:id :x
          :neighbours {:u {:in in
                           :out out
-                          :distance 9}}})  ; TODO
+                          :distance distance}}})
   )
 
 (defn make-connection [d]
@@ -93,25 +93,32 @@
   (def wx (atom {:id :x}))
   (def wy (atom {:id :y}))
   (connect-workers wx wy 3)
-  @wx := 3
-  @wy := 3)
+  (nil? (:x (:neighbours @wy))) := false
+  (nil? (:y (:neighbours @wx))) := false)
+
+(defn set-message-handler
+  "Set the message-handler of worker w to f. f should be a function [w msg] that accepts a worker
+  and a msg, and returns the updated worker"
+  [w f]
+  (swap! w assoc :message-handler f))
 
 (defmulti handle-message (fn [w msg] (:id msg)))
 
 (defmethod handle-message :greet
   [w msg]
-  (println "Greeting"))
+  (log msg)
+  (println "Greeting")
+  w)
 
 (defmethod handle-message nil
   [w msg]
-  (println (:id @w) msg))
+  (log msg)
+  (println "Worker" (:id w) "received message:" msg)
+  w)
 
-(defn message-handler [w]
-  (fn [msg] (handle-message w msg)))
-
-(defn listen-neighbour [worker nb-id]
+(defn listen-neighbour! [worker nb-id]
   (go
-    (while true
+    (loop []
       (let [in-chan (-> @worker :neighbours nb-id :in)
             msg (<! in-chan)]
         (if (= msg :disconnect)
@@ -119,17 +126,23 @@
             (println "Closing")
             (close! in-chan)
             (swap! worker update :neighbours dissoc nb-id))
-          (handle-message worker msg))))))
+          (do (when-let [handler (:message-handler @worker)]
+                (swap! worker handler msg))
+              (recur)))))))
 
-(let [in (chan)
-      out (chan)
-      w (worker in out)]
-  (listen-neighbour w :u)
-  (>!! in "Hello")
-  (>!! in {:id :greet})
-  (>!! in :disconnect)
-  (<!! (async/timeout 100))
-  @w)
+(comment (let [in (chan)
+               out (chan)
+               w (-> (worker {:id :x
+                              :conn {:in in :out out :distance 4}
+                              :message-handler handle-message}))]
+           (listen-neighbour! w :u)
+           (>!! in "Hello")
+           @w
+           (>!! in {:id :greet})
+           @w
+           (>!! in :disconnect)
+           (<!! (async/timeout 100))
+           @w))
 
 (defn build-network [{:keys [nodes _links] :as graph}]
   (into {} (for [node nodes]
