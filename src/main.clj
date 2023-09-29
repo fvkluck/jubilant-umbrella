@@ -64,11 +64,12 @@
   (neighbours {:nodes #{} :links #{}} :u) := {}
   (neighbours graph :nan) := {})
 
-(defn worker [{:keys [in out distance] :as conn}]
+(defn worker [{{:keys [in out distance]} :conn :keys [message-handler]}]
   (atom {:id :x
          :neighbours {:u {:in in
                           :out out
-                          :distance distance}}})
+                          :distance distance}}
+         :message-handler message-handler})
   )
 
 (defn make-connection [d]
@@ -100,7 +101,7 @@
   "Set the message-handler of worker w to f. f should be a function [w msg] that accepts a worker
   and a msg, and returns the updated worker"
   [w f]
-  (swap! w assoc :message-handler f))
+  (assoc w :message-handler f))
 
 (defmulti handle-message (fn [w msg] (:id msg)))
 
@@ -129,6 +130,25 @@
           (do (when-let [handler (:message-handler @worker)]
                 (swap! worker handler msg))
               (recur)))))))
+
+(rcf/tests
+  (def test-chan (chan 1))
+  (defn test-handler [w msg]
+    (>!! test-chan msg)
+    w)
+  (def in (chan))
+  (def out (chan))
+  (def w (worker {:id :x
+                  :conn {:in in :out out :distance 4}
+                  :message-handler test-handler}))
+  (listen-neighbour! w :u)
+  (>!! in "Hello")
+  (<!! test-chan) := "Hello"
+
+  (>!! in :disconnect)
+  (<!! (async/timeout 100))
+  (:neighbours @w) := {}
+  )
 
 (comment (let [in (chan)
                out (chan)
