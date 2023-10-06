@@ -44,10 +44,8 @@
   (distance [[:u :v] 4] :u) := [:v 4]
   (distance [[:u :v] 4] :y) := nil)
 
-(defn worker [{:keys [id message-handler]}]
-  (atom {:id id
-         :message-handler message-handler})
-  )
+(defn worker [{:keys [id]}]
+  (atom {:id id}))
 
 (defn make-connection [d]
   {:in (chan)
@@ -74,12 +72,6 @@
   (nil? (:x (:neighbours @wy))) := false
   (nil? (:y (:neighbours @wx))) := false)
 
-(defn set-message-handler
-  "Set the message-handler of worker w to f. f should be a function [w msg] that accepts a worker
-  and a msg, and returns the updated worker"
-  [w f]
-  (assoc w :message-handler f))
-
 (defmulti handle-message
   "A handle-message should accept a (worker) state and a msg, and return the updated state and a
   list of messages to send to the neighbours of the worker"
@@ -97,7 +89,7 @@
   (println "Worker" (:id state) "received message:" msg)
   [state []])
 
-(defn listen-neighbours! [worker]
+(defn listen-neighbours! [worker handler]
   (go
     (loop []
       (let [in-chans (->> (:neighbours @worker)
@@ -109,10 +101,10 @@
             (println "Closing")
             (close! ch)
             (swap! worker update :neighbours dissoc (:sender-id msg)))
-          (do (when-let [handler (:message-handler @worker)]
-                (let [[new-state _msgs] (handler @worker msg)]
-                  (reset! worker new-state)))
-              (recur)))))))
+          (do 
+            (let [[new-state _msgs] (handler @worker msg)]
+              (reset! worker new-state))
+            (recur)))))))
 
 ; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
 
@@ -123,10 +115,9 @@
     [state []])
   (def in (chan))
   (def out (chan))
-  (def w (worker {:id :x
-                  :message-handler test-handler}))
+  (def w (worker {:id :x}))
   (swap! w add-connection :u {:in in :out out :distance 4})
-  (listen-neighbours! w)
+  (listen-neighbours! w test-handler)
   (>!! in "Hello")
   (<!! test-chan) := "Hello"
 
@@ -138,16 +129,15 @@
 
 (defn build-network [{:keys [nodes] :as _graph}]
   (into {} (for [n nodes]
-             [n (worker {:id n
-                         :message-handler handle-message})])))
+             [n (worker {:id n})])))
 
 (defn start-system
   [{:keys [links] :as graph}]
   (let [network (build-network graph)]
     (doseq [[[n1 n2] distance] links]
       (connect-workers! (n1 network) (n2 network) distance)
-      (listen-neighbours! (n1 network))
-      (listen-neighbours! (n2 network)))
+      (listen-neighbours! (n1 network) handle-message)
+      (listen-neighbours! (n2 network) handle-message))
     network))
 
 (rcf/tests
@@ -160,10 +150,9 @@
 
 (comment (let [in (chan)
                out (chan)
-               w (-> (worker {:id :x
-                              :message-handler handle-message}))]
+               w (-> (worker {:id :x}))]
            (swap! w add-connection :u {:in in :out out :distance 4})
-           (listen-neighbours! w)
+           (listen-neighbours! w handle-message)
            (>!! in "Hello")
            @w
            (>!! in {:id :greet})
