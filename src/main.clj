@@ -63,11 +63,8 @@
   (neighbours {:nodes #{} :links #{}} :u) := {}
   (neighbours graph :nan) := {})
 
-(defn worker [{{:keys [in out distance]} :conn :keys [message-handler]}]
-  (atom {:id :x
-         :neighbours {:u {:in in
-                          :out out
-                          :distance distance}}
+(defn worker [{{:keys [in out distance]} :conn :keys [id message-handler]}]
+  (atom {:id id
          :message-handler message-handler})
   )
 
@@ -138,8 +135,8 @@
   (def in (chan))
   (def out (chan))
   (def w (worker {:id :x
-                  :conn {:in in :out out :distance 4}
                   :message-handler test-handler}))
+  (swap! w add-connection :u {:in in :out out :distance 4})
   (listen-neighbour! w :u)
   (>!! in "Hello")
   (<!! test-chan) := "Hello"
