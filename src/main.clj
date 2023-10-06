@@ -81,7 +81,7 @@
 (defn add-connection [w conn-id conn]
   (update w :neighbours assoc conn-id conn))
 
-(defn connect-workers [w1 w2 d]
+(defn connect-workers! [w1 w2 d]
   (let [conn (make-connection d)]
     (swap! w1 add-connection (:id @w2) conn)
     (swap! w2 add-connection (:id @w1) (reverse-connection conn))))
@@ -89,7 +89,7 @@
 (rcf/tests
   (def wx (atom {:id :x}))
   (def wy (atom {:id :y}))
-  (connect-workers wx wy 3)
+  (connect-workers! wx wy 3)
   (nil? (:x (:neighbours @wy))) := false
   (nil? (:y (:neighbours @wx))) := false)
 
