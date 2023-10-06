@@ -163,6 +163,11 @@
 (comment
   (def network (start-system graph)))
 
+(comment "greet neighbours"
+         (let [w (:x network)]
+           (for [[n-id {:keys [in out d]}] (:neighbours @w)]
+             (go (>! out :greet)))))
+
 (comment (let [in (chan)
                out (chan)
                w (-> (worker {:id :x
