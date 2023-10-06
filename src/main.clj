@@ -80,19 +80,22 @@
   [w f]
   (assoc w :message-handler f))
 
-(defmulti handle-message (fn [w msg] (:id msg)))
+(defmulti handle-message
+  "A handle-message should accept a (worker) state and a msg, and return the updated state and a
+  list of messages to send to the neighbours of the worker"
+  (fn [_state msg] (:id msg)))
 
 (defmethod handle-message :greet
-  [w msg]
+  [state msg]
   (log msg)
   (println "Greeting")
-  w)
+  [state []])
 
 (defmethod handle-message nil
-  [w msg]
+  [state msg]
   (log msg)
-  (println "Worker" (:id w) "received message:" msg)
-  w)
+  (println "Worker" (:id state) "received message:" msg)
+  [state []])
 
 (defn listen-neighbours! [worker]
   (go
@@ -107,16 +110,17 @@
             (close! ch)
             (swap! worker update :neighbours dissoc (:sender-id msg)))
           (do (when-let [handler (:message-handler @worker)]
-                (swap! worker handler msg))
+                (let [[new-state _msgs] (handler @worker msg)]
+                  (reset! worker new-state)))
               (recur)))))))
 
 ; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
 
 (rcf/tests
   (def test-chan (chan 1))
-  (defn test-handler [w msg]
+  (defn test-handler [state msg]
     (>!! test-chan msg)
-    w)
+    [state []])
   (def in (chan))
   (def out (chan))
   (def w (worker {:id :x
