@@ -44,7 +44,7 @@
   (distance [[:u :v] 4] :u) := [:v 4]
   (distance [[:u :v] 4] :y) := nil)
 
-(defn worker [{{:keys [in out distance]} :conn :keys [id message-handler]}]
+(defn worker [{:keys [id message-handler]}]
   (atom {:id id
          :message-handler message-handler})
   )
