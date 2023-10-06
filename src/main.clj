@@ -78,9 +78,16 @@
   (fn [_state msg] (:id msg)))
 
 (defmethod handle-message :greet
-  [state msg]
+  [state {:keys [sender-id] :as msg}]
   (log msg)
   (println "Greeting")
+  [state [[sender-id {:id :greet-reply
+                      :sender (:id state)}]]])
+
+(defmethod handle-message :greet-reply
+  [state {:keys [_sender-id] :as msg}]
+  (log msg)
+  (println "Greeting reply")
   [state []])
 
 (defmethod handle-message nil
@@ -92,7 +99,8 @@
 (defn listen-neighbours! [worker handler]
   (go
     (loop []
-      (let [in-chans (->> (:neighbours @worker)
+      (let [neighbours (:neighbours @worker)
+            in-chans (->> neighbours
                           vals
                           (map :in))
             [msg ch] (alts! in-chans)]  ; TODO no check on no neighbours
@@ -101,9 +109,11 @@
             (println "Closing")
             (close! ch)
             (swap! worker update :neighbours dissoc (:sender-id msg)))
-          (do 
-            (let [[new-state _msgs] (handler @worker msg)]
-              (reset! worker new-state))
+          (do
+            (let [[new-state msgs] (handler @worker msg)]
+              (reset! worker new-state)
+              (doseq [[addressee msg] msgs]
+                (>! (-> neighbours addressee :out) msg)))
             (recur)))))))
 
 ; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
@@ -146,7 +156,8 @@
 (comment "greet neighbours"
          (let [w (:x network)]
            (for [[n-id {:keys [in out d]}] (:neighbours @w)]
-             (go (>! out :greet)))))
+             (go (>! out {:id :greet
+                          :sender-id :x})))))
 
 (comment (let [in (chan)
                out (chan)
