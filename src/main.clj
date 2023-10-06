@@ -146,6 +146,23 @@
   (:neighbours @w) := {}
   )
 
+(defn build-network [{:keys [nodes] :as _graph}]
+  (into {} (for [n nodes]
+             [n (worker {:id n
+                         :message-handler handle-message})])))
+
+(defn start-system
+  [{:keys [links] :as graph}]
+  (let [network (build-network graph)]
+    (doseq [[[n1 n2] distance] links]
+      (connect-workers! (n1 network) (n2 network) distance)
+      (listen-neighbour! (n1 network) n2)
+      (listen-neighbour! (n2 network) n2))
+    network))
+
+(comment
+  (def network (start-system graph)))
+
 (comment (let [in (chan)
                out (chan)
                w (-> (worker {:id :x
@@ -160,7 +177,9 @@
            (<!! (async/timeout 100))
            @w))
 
-(defn build-network [{:keys [nodes _links] :as graph}]
+
+
+#_(defn build-network [{:keys [nodes _links] :as graph}]
   (into {} (for [node nodes]
     [node (make-node {:id node
                       :neighbours (neighbours graph node)
