@@ -21,16 +21,16 @@
 
 (def graph
   {:nodes #{:u :v :w :x :y :z}
-   :links {#{:u :v} 4
-           #{:u :w} 7
-           #{:u :x} 9
-           #{:v :x} 4
-           #{:v :w} 3
-           #{:w :x} 2
-           #{:w :y} 8
-           #{:x :y} 4
-           #{:w :z} 3
-           #{:y :z} 6}})
+   :links {[:u :v] 4
+           [:u :w] 7
+           [:u :x] 9
+           [:v :x] 4
+           [:v :w] 3
+           [:w :x] 2
+           [:w :y] 8
+           [:x :y] 4
+           [:w :z] 3
+           [:y :z] 6}})
 
 (defn watch-agent [n]
   (let [watch-fn (fn [k _reference _old new-state]
@@ -42,16 +42,15 @@
       (watch-agent)))
 
 (defn distance [link node]
-  (let [[pair d] link]
-    (if (pair node)
-      (let [neighbour (-> pair
-                          (disj node)
-                          first)]
-        [neighbour d]))))
+  (let [[[n1 n2] d] link]
+    (cond
+      (= node n1) [n2 d]
+      (= node n2) [n1 d]
+      :else nil)))
 
 (hyperfiddle.rcf/tests
-  (distance [#{:u :v} 4] :u) := [:v 4]
-  (distance [#{:u :v} 4] :y) := nil)
+  (distance [[:u :v] 4] :u) := [:v 4]
+  (distance [[:u :v] 4] :y) := nil)
 
 (defn neighbours [{:keys [links]} node]
   (->> links
