@@ -13,11 +13,12 @@
 (defn show-log []
   @logs)
 
-(comment
-  (show-log))
-
 (defn clear-log []
   (reset! logs []))
+
+(comment
+  (clear-log)
+  (show-log))
 
 (rcf/tests 
   (def graph
@@ -153,11 +154,17 @@
 (rcf/tests
   (def network (start-system graph)))
 
-(comment "greet neighbours"
-         (let [w (:x network)]
-           (for [[n-id {:keys [in out d]}] (:neighbours @w)]
-             (go (>! out {:id :greet
-                          :sender-id :x})))))
+(rcf/tests
+  "greet neighbours"
+  (clear-log)
+  (let [w (:x network)]
+    (doseq [[n-id {:keys [in out d]}] (:neighbours @w)]
+      (go (>! out {:id :greet
+                   :sender-id :x}))))
+  (<!! (async/timeout 100))  ; TODO figure out how to naturally wait for the previous statement to finish
+  (->> (show-log)
+       (map :id)
+       frequencies) := {:greet 4 :greet-reply 4})
 
 (comment (let [in (chan)
                out (chan)
