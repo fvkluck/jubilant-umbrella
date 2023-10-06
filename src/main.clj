@@ -1,5 +1,6 @@
-(ns networksim.main
-  (:require [hyperfiddle.rcf :as rcf]))
+(ns main
+  (:require [hyperfiddle.rcf :as rcf]
+            [clojure.core.async :refer [go <! >!  <!! chan >!! close! alts!] :as async]))
 
 (comment
   (rcf/enable!))
@@ -18,18 +19,18 @@
 (defn clear-log []
   (reset! logs []))
 
-(rcf/tests (def graph
-             {:nodes #{:u :v :w :x :y :z}
-              :links {#{:u :v} 4
-                      #{:u :w} 7
-                      #{:u :x} 9
-                      #{:v :x} 4
-                      #{:v :w} 3
-                      #{:w :x} 2
-                      #{:w :y} 8
-                      #{:x :y} 4
-                      #{:w :z} 3
-                      #{:y :z} 6}}))
+(rcf/tests graph
+  {:nodes #{:u :v :w :x :y :z}
+   :links {[:u :v] 4
+           [:u :w] 7
+           [:u :x] 9
+           [:v :x] 4
+           [:v :w] 3
+           [:w :x] 2
+           [:w :y] 8
+           [:x :y] 4
+           [:w :z] 3
+           [:y :z] 6}})
 
 (defn watch-agent [n]
   (let [watch-fn (fn [k _reference _old new-state]
@@ -41,12 +42,11 @@
       (watch-agent)))
 
 (defn distance [link node]
-  (let [[pair d] link]
-    (if (pair node)
-      (let [neighbour (-> pair
-                          (disj node)
-                          first)]
-        [neighbour d]))))
+  (let [[[n1 n2] d] link]
+    (cond
+      (= node n1) [n2 d]
+      (= node n2) [n1 d]
+      :else nil)))
 
 (rcf/tests
   (distance [#{:u :v} 4] :u) := [:v 4]
@@ -93,7 +93,134 @@
                                                                 :distance 9}}}}
   )
 
-(defn build-network [{:keys [nodes _links] :as graph}]
+(defn worker [{{:keys [in out distance]} :conn :keys [id message-handler]}]
+  (atom {:id id
+         :message-handler message-handler})
+  )
+
+(defn make-connection [d]
+  {:in (chan)
+   :out (chan)
+   :distance d})
+
+(defn reverse-connection [{:keys [in out] :as conn}]
+  (-> conn
+      (assoc :in out)
+      (assoc :out in)))
+
+(defn add-connection [w conn-id conn]
+  (update w :neighbours assoc conn-id conn))
+
+(defn connect-workers! [w1 w2 d]
+  (let [conn (make-connection d)]
+    (swap! w1 add-connection (:id @w2) conn)
+    (swap! w2 add-connection (:id @w1) (reverse-connection conn))))
+
+(rcf/tests
+  (def wx (atom {:id :x}))
+  (def wy (atom {:id :y}))
+  (connect-workers! wx wy 3)
+  (nil? (:x (:neighbours @wy))) := false
+  (nil? (:y (:neighbours @wx))) := false)
+
+(defn set-message-handler
+  "Set the message-handler of worker w to f. f should be a function [w msg] that accepts a worker
+  and a msg, and returns the updated worker"
+  [w f]
+  (assoc w :message-handler f))
+
+(defmulti handle-message (fn [w msg] (:id msg)))
+
+(defmethod handle-message :greet
+  [w msg]
+  (log msg)
+  (println "Greeting")
+  w)
+
+(defmethod handle-message nil
+  [w msg]
+  (log msg)
+  (println "Worker" (:id w) "received message:" msg)
+  w)
+
+(defn listen-neighbours! [worker]
+  (go
+    (loop []
+      (let [in-chans (->> (:neighbours @worker)
+                          vals
+                          (map :in))
+            [msg ch] (alts! in-chans)]  ; TODO no check on no neighbours
+        (if (= (:id msg) :disconnect)
+          (do
+            (println "Closing")
+            (close! ch)
+            (swap! worker update :neighbours dissoc (:sender-id msg)))
+          (do (when-let [handler (:message-handler @worker)]
+                (swap! worker handler msg))
+              (recur)))))))
+
+; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
+
+(rcf/tests
+  (def test-chan (chan 1))
+  (defn test-handler [w msg]
+    (>!! test-chan msg)
+    w)
+  (def in (chan))
+  (def out (chan))
+  (def w (worker {:id :x
+                  :message-handler test-handler}))
+  (swap! w add-connection :u {:in in :out out :distance 4})
+  (listen-neighbours! w)
+  (>!! in "Hello")
+  (<!! test-chan) := "Hello"
+
+  (>!! in {:id :disconnect
+           :sender-id :u})
+  (<!! (async/timeout 100))
+  (:neighbours @w) := {}
+  )
+
+(defn build-network [{:keys [nodes] :as _graph}]
+  (into {} (for [n nodes]
+             [n (worker {:id n
+                         :message-handler handle-message})])))
+
+(defn start-system
+  [{:keys [links] :as graph}]
+  (let [network (build-network graph)]
+    (doseq [[[n1 n2] distance] links]
+      (connect-workers! (n1 network) (n2 network) distance)
+      (listen-neighbours! (n1 network))
+      (listen-neighbours! (n2 network)))
+    network))
+
+(rcf/tests
+  (def network (start-system graph)))
+
+(comment "greet neighbours"
+         (let [w (:x network)]
+           (for [[n-id {:keys [in out d]}] (:neighbours @w)]
+             (go (>! out :greet)))))
+
+(comment (let [in (chan)
+               out (chan)
+               w (-> (worker {:id :x
+                              :message-handler handle-message}))]
+           (swap! w add-connection :u {:in in :out out :distance 4})
+           (listen-neighbours! w)
+           (>!! in "Hello")
+           @w
+           (>!! in {:id :greet})
+           @w
+           (>!! in {:id :disconnect
+                    :sender-id :x})
+           (<!! (async/timeout 100))
+           @w))
+
+
+
+#_(defn build-network [{:keys [nodes _links] :as graph}]
   (into {} (for [node nodes]
     [node (make-node {:id node
                       :neighbours (neighbours graph node)
@@ -164,6 +291,8 @@
   (handle-message :update-route :u :x :v {:path (list)
                                         :distance 4})
   )
+
+#_(def network (build-network graph))
 
 (defmulti handle-message (fn [msg-id & _] msg-id))
 
