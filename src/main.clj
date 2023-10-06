@@ -1,6 +1,6 @@
 (ns main
   (:require [hyperfiddle.rcf :as rcf]
-            [clojure.core.async :refer [go <! >!  <!! chan >!! close!] :as async]))
+            [clojure.core.async :refer [go <! >!  <!! chan >!! close! alts!] :as async]))
 
 (comment
   (hyperfiddle.rcf/enable!))
@@ -113,19 +113,23 @@
   (println "Worker" (:id w) "received message:" msg)
   w)
 
-(defn listen-neighbour! [worker nb-id]
+(defn listen-neighbours! [worker]
   (go
     (loop []
-      (let [in-chan (-> @worker :neighbours nb-id :in)
-            msg (<! in-chan)]
-        (if (= msg :disconnect)
+      (let [in-chans (->> (:neighbours @worker)
+                          vals
+                          (map :in))
+            [msg ch] (alts! in-chans)]  ; TODO no check on no neighbours
+        (if (= (:id msg) :disconnect)
           (do
             (println "Closing")
-            (close! in-chan)
-            (swap! worker update :neighbours dissoc nb-id))
+            (close! ch)
+            (swap! worker update :neighbours dissoc (:sender-id msg)))
           (do (when-let [handler (:message-handler @worker)]
                 (swap! worker handler msg))
               (recur)))))))
+
+; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
 
 (rcf/tests
   (def test-chan (chan 1))
@@ -137,11 +141,12 @@
   (def w (worker {:id :x
                   :message-handler test-handler}))
   (swap! w add-connection :u {:in in :out out :distance 4})
-  (listen-neighbour! w :u)
+  (listen-neighbours! w)
   (>!! in "Hello")
   (<!! test-chan) := "Hello"
 
-  (>!! in :disconnect)
+  (>!! in {:id :disconnect
+           :sender-id :u})
   (<!! (async/timeout 100))
   (:neighbours @w) := {}
   )
@@ -156,11 +161,11 @@
   (let [network (build-network graph)]
     (doseq [[[n1 n2] distance] links]
       (connect-workers! (n1 network) (n2 network) distance)
-      (listen-neighbour! (n1 network) n2)
-      (listen-neighbour! (n2 network) n2))
+      (listen-neighbours! (n1 network))
+      (listen-neighbours! (n2 network)))
     network))
 
-(comment
+(rcf/tests
   (def network (start-system graph)))
 
 (comment "greet neighbours"
@@ -171,14 +176,15 @@
 (comment (let [in (chan)
                out (chan)
                w (-> (worker {:id :x
-                              :conn {:in in :out out :distance 4}
                               :message-handler handle-message}))]
-           (listen-neighbour! w :u)
+           (swap! w add-connection :u {:in in :out out :distance 4})
+           (listen-neighbours! w)
            (>!! in "Hello")
            @w
            (>!! in {:id :greet})
            @w
-           (>!! in :disconnect)
+           (>!! in {:id :disconnect
+                    :sender-id :x})
            (<!! (async/timeout 100))
            @w))
 
@@ -254,7 +260,7 @@
                                         :distance 4})
   )
 
-(def network (build-network graph))
+#_(def network (build-network graph))
 
 (defmulti handle-message (fn [msg-id & _] msg-id))
 
