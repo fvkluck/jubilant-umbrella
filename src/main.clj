@@ -100,22 +100,27 @@
 (defn listen-neighbours! [worker handler]
   (go
     (loop []
-      (let [neighbours (:neighbours @worker)
-            in-chans (->> neighbours
-                          vals
-                          (map :in))
-            [msg ch] (alts! in-chans)]  ; TODO no check on no neighbours
-        (if (= (:id msg) :disconnect)
-          (do
-            (println "Closing")
-            (close! ch)
-            (swap! worker update :neighbours dissoc (:sender-id msg)))
-          (do
-            (let [[new-state msgs] (handler @worker msg)]
-              (reset! worker new-state)
-              (doseq [[addressee msg] msgs]
-                (>! (-> neighbours addressee :out) msg)))
-            (recur)))))))
+      (when-let [neighbours (:neighbours @worker)]
+        (let [in-chans (->> neighbours
+                             vals
+                             (map :in))
+              [msg ch] (alts! in-chans)]
+          (if (= (:id msg) :disconnect)
+            (do
+              (println "Closing")
+              (close! ch)
+              (swap! worker update :neighbours dissoc (:sender-id msg)))
+            (do
+              (let [[new-state msgs] (handler @worker msg)]
+                (reset! worker new-state)
+                (doseq [[addressee msg] msgs]
+                  (>! (-> neighbours addressee :out) msg)))
+              (recur))))))))
+
+(rcf/tests
+  "listen-neighbours! can handle worker without neighbours"
+  (def w (worker {:id :x}))
+  (listen-neighbours! w handle-message))
 
 (rcf/tests
   (def test-chan (chan 1))
