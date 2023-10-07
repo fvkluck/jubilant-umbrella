@@ -117,8 +117,6 @@
                 (>! (-> neighbours addressee :out) msg)))
             (recur)))))))
 
-; I think a message handler should be a function that takes the current state and the message, and returns the new state and a list of messages (addressee, content) to send. That way, the message handler can be pure, and the actions are handled in listen-neighbours!
-
 (rcf/tests
   (def test-chan (chan 1))
   (defn test-handler [state msg]
@@ -173,7 +171,9 @@
            (listen-neighbours! w handle-message)
            (>!! in "Hello")
            @w
-           (>!! in {:id :greet})
+           (go (<! out))  ; fake :u listening for the reply
+           (>!! in {:id :greet
+                    :sender-id :u})
            @w
            (>!! in {:id :disconnect
                     :sender-id :x})
