@@ -67,7 +67,7 @@
        first))
 
 (defn remove-neighbour [w n-id]
-  (update w :neighbours filter (fn [conn] (not= n-id (:id conn)))))
+  (update w :neighbours (fn [neighbours] (filter (fn [neighbour] (not= n-id (:id neighbour))) neighbours))))
 
 (defn remove-neighbour-by-in-ch [w ch]
   (update w :neighbours (fn [neighbours] (filter (fn [neighbour] (not= ch (:in neighbour))) neighbours))))
@@ -127,6 +127,23 @@
     (-> (first msgs) second) := {:id :greet-reply
                                  :sender :x}))
 
+(defmethod handle-message :disconnect
+  [state {:keys [sender-id] :as _msg} ch]
+  (do
+    (println "Closing" ch)
+    (close! ch)
+    [(remove-neighbour state sender-id) []]))
+
+(rcf/tests
+  (def conn (make-connection 3))
+  (def w {:id :x
+          :neighbours [(assoc conn :id :y)]})
+  (let [[new-state msgs] (handle-message w
+                                         {:id :disconnect :sender-id :y}
+                                         (:in conn))]
+    (-> new-state :neighbours count) := 0
+    (count msgs) := 0))
+
 (defmethod handle-message :greet-reply
   [state {:keys [_sender-id] :as msg} ch]
   (log msg)
@@ -144,22 +161,16 @@
     (loop []
       (when-let [neighbours (:neighbours @worker)]
         (let [in-chans (->> neighbours
-                             (map :in))
+                            (map :in))
               [msg ch] (alts! in-chans)]
-          (if (= (:id msg) :disconnect)
-            (do
-              (println "Closing" ch)
-              (swap! worker update remove-neighbour-by-in-ch ch)
-              (close! ch))
-            (do
-              (let [[new-state msgs] (handler @worker msg ch)]
-                (reset! worker new-state)
-                (doseq [[addressee msg] msgs]
-                  (>! (-> @worker
-                          (get-neighbour addressee)
-                          :out)
-                      msg)))
-              (recur))))))))
+          (let [[new-state msgs] (handler @worker msg ch)]
+            (reset! worker new-state)
+            (doseq [[addressee msg] msgs]
+              (>! (-> @worker
+                      (get-neighbour addressee)
+                      :out)
+                  msg)))
+            (recur))))))
 
 (rcf/tests
   "listen-neighbours! can handle worker without neighbours"
