@@ -195,12 +195,12 @@
              [n (worker {:id n})])))
 
 (defn start-system
-  [{:keys [links] :as graph}]
+  [{:keys [nodes links] :as graph}]
   (let [network (build-network graph)]
     (doseq [[[n1 n2] distance] links]
-      (connect-workers! (n1 network) (n2 network) distance)
-      (listen-neighbours! (n1 network) handle-message)
-      (listen-neighbours! (n2 network) handle-message))
+      (connect-workers! (n1 network) (n2 network) distance))
+    (doseq [n-id nodes]
+      (listen-neighbours! (n-id network) handle-message))
     network))
 
 (rcf/tests
