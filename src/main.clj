@@ -108,11 +108,10 @@
 (defmethod handle-message :greet
   [state {:keys [sender-id] :as msg} ch]
   (log msg)
-  (println "Greeting")
   [(-> state
        (update-neighbour-by-in-ch ch (fn [n] (assoc n :id sender-id))))
    [[sender-id {:id :greet-reply
-                :sender (:id state)}]]])
+                :sender-id (:id state)}]]])
 
 (rcf/tests
   (def conn (make-connection 3))
@@ -125,7 +124,13 @@
     (-> new-state :neighbours first :id) := :y
     (-> (first msgs) first) := :y
     (-> (first msgs) second) := {:id :greet-reply
-                                 :sender :x}))
+                                 :sender-id :x}))
+
+(defmethod handle-message :greet-reply
+  [state {:keys [sender-id] :as msg} ch]
+  (log msg)
+  [(-> state
+       (update-neighbour-by-in-ch ch (fn [n] (assoc n :id sender-id)))) []])
 
 (defmethod handle-message :disconnect
   [state {:keys [sender-id] :as _msg} ch]
@@ -143,12 +148,6 @@
                                          (:in conn))]
     (-> new-state :neighbours count) := 0
     (count msgs) := 0))
-
-(defmethod handle-message :greet-reply
-  [state {:keys [_sender-id] :as msg} ch]
-  (log msg)
-  (println "Greeting reply")
-  [state []])
 
 (defmethod handle-message nil
   [state msg ch]
@@ -214,10 +213,26 @@
     (doseq [{:keys [in out d]} (:neighbours @w)]
       (go (>! out {:id :greet
                    :sender-id :x}))))
-  (<!! (async/timeout 300))  ; TODO figure out how to naturally wait for the previous statement to finish
+  (<!! (async/timeout 50))  ; TODO figure out how to naturally wait for the previous statement to finish
   (->> (show-log)
        (map :id)
-       frequencies) := {:greet 4 :greet-reply 4})
+       frequencies) := {:greet 4 :greet-reply 4}
+  (->> (:neighbours @w)
+       (map :id)) := (list :y :v :u :w)
+  (defn known-neighbours [n]
+    (-> (n network)
+        deref
+        :neighbours
+        (->> (map :id)
+             (filter (complement nil?)))))
+  (count (known-neighbours :y)) := 1
+  (first (known-neighbours :y)) := :x
+  (count (known-neighbours :v)) := 1
+  (first (known-neighbours :v)) := :x
+  (count (known-neighbours :u)) := 1
+  (first (known-neighbours :u)) := :x
+  (count (known-neighbours :w)) := 1
+  (first (known-neighbours :w)) := :x)
 
 (comment (let [in (chan)
                out (chan)
